@@ -15,7 +15,7 @@ const SERVICE_ID = 20018;
 
 // 💰 CONFIG MERCADO PAGO
 const client = new MercadoPagoConfig({
-  accessToken: "APP_USR-7916377909351682-040714-371cc903e48b3137c98cca4c283f8f10-1263880545"
+  accessToken: "TEST-7916377909351682-040714-df01234fd2626c34c15da7481cbc1981-1263880545"
 });
 
 // ROTA TESTE
@@ -50,7 +50,35 @@ app.post("/order", async (req, res) => {
 
 // 💳 ROTA PIX
 app.post("/pix", async (req, res) => {
-  return res.json({ ok: true, valor: req.body.valor });
+  const { valor } = req.body;
+
+  try {
+    const payment = new Payment(client);
+
+    const result = await payment.create({
+      body: {
+        transaction_amount: Number(valor),
+        description: "Compra de seguidores",
+        payment_method_id: "pix",
+        payer: {
+          email: "cliente@email.com"
+        }
+      }
+    });
+
+    return res.json({
+      qr_code: result.point_of_interaction.transaction_data.qr_code,
+      qr_code_base64: result.point_of_interaction.transaction_data.qr_code_base64
+    });
+  } catch (error) {
+    console.log("Erro no PIX:", error);
+    return res.status(500).json({
+      error: "Erro ao gerar PIX"
+    });
+  }
+});
+app.get("/teste", (req, res) => {
+  res.send("FUNCIONANDO TESTE");
 });
 app.post("/webhook", async (req, res) => {
   try {
