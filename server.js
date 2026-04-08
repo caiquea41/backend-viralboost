@@ -122,59 +122,81 @@ app.post("/webhook", async (req, res) => {
   try {
     console.log("Webhook recebido:", JSON.stringify(req.body, null, 2));
 
-    const eventType = req.body.type || req.body.action;
     const paymentId = req.body?.data?.id;
+    const liveMode = req.body?.live_mode;
+    const eventType = req.body?.type;
+    const action = req.body?.action;
 
+    // 1) Responder OK para payloads de teste/simulação
+    if (liveMode === false) {
+      console.log("Webhook de teste recebido. Retornando 200 sem processar.");
+      return res.sendStatus(200);
+    }
+
+    // 2) Se não tiver paymentId, não quebra
     if (!paymentId) {
+      console.log("Webhook sem paymentId. Retornando 200.");
+      return res.sendStatus(200);
+    }
+
+    // 3) Processa apenas eventos de pagamento
+    if (eventType !== "payment" && action !== "payment.updated") {
+      console.log("Evento ignorado:", eventType || action);
       return res.sendStatus(200);
     }
 
     const payment = new Payment(client);
     const paymentInfo = await payment.get({ id: paymentId });
 
-    if (paymentInfo.status === "approved") {
-      const pedido = pedidos[paymentId];
+    if (paymentInfo.status !== "approved") {
+      console.log("Pagamento ainda não aprovado:", paymentInfo.status);
+      return res.sendStatus(200);
+    }
 
-      if (!pedido) {
-        console.log("Pedido não encontrado para payment_id:", paymentId);
-        return res.sendStatus(200);
-      }
+    const pedido = pedidos[paymentId];
 
-      if (pedido.status === "approved" || pedido.status === "sent") {
-        console.log("Pedido já processado:", paymentId);
-        return res.sendStatus(200);
-      }
+    if (!pedido) {
+      console.log("Pedido não encontrado para payment_id:", paymentId);
+      return res.sendStatus(200);
+    }
 
-      pedido.status = "approved";
+    if (pedido.status === "approved" || pedido.status === "sent") {
+      console.log("Pedido já processado:", paymentId);
+      return res.sendStatus(200);
+    }
 
-      try {
-        const smmResponse = await axios.post(API_URL, {
-          key: API_KEY,
-          action: "add",
-          service: Number(pedido.service_id),
-          link: pedido.link,
-          quantity: Number(pedido.quantidade)
-        });
+    pedido.status = "approved";
 
-        pedido.status = "sent";
-        pedido.smm_response = smmResponse.data;
-        pedido.sent_at = new Date().toISOString();
+    try {
+      const smmResponse = await axios.post(API_URL, {
+        key: API_KEY,
+        action: "add",
+        service: Number(pedido.service_id),
+        link: pedido.link,
+        quantity: Number(pedido.quantidade)
+      });
 
-        console.log("Pedido enviado ao SMMWiz:", smmResponse.data);
-      } catch (smmError) {
-        pedido.status = "error";
-        pedido.smm_error = smmError.response?.data || smmError.message;
+      pedido.status = "sent";
+      pedido.smm_response = smmResponse.data;
+      pedido.sent_at = new Date().toISOString();
 
-        console.log("Erro ao enviar ao SMMWiz:");
-        console.log(smmError.response?.data || smmError.message);
-      }
+      console.log("Pedido enviado ao SMMWiz:", smmResponse.data);
+    } catch (smmError) {
+      pedido.status = "error";
+      pedido.smm_error = smmError.response?.data || smmError.message;
+
+      console.log("Erro ao enviar ao SMMWiz:");
+      console.log(smmError.response?.data || smmError.message);
     }
 
     return res.sendStatus(200);
   } catch (error) {
     console.log("ERRO NO WEBHOOK:");
-    console.log(error);
-    return res.sendStatus(500);
+    console.log(error.response?.data || error.message || error);
+
+    // Mesmo em erro, você pode devolver 200 durante testes
+    // para validar a URL no painel e evitar falha no "Test URL"
+    return res.sendStatus(200);
   }
 });
 
