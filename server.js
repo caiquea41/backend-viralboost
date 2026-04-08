@@ -5,19 +5,7 @@ const { MercadoPagoConfig, Payment } = require("mercadopago");
 
 const app = express();
 
-const corsOptions = {
-  origin: [
-    "https://viralboostbr.com",
-    "https://www.viralboostbr.com",
-    "http://localhost:3000",
-    "http://127.0.0.1:5500"
-  ],
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-};
-
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // 🔥 ESSENCIAL PARA O OPTIONS
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 // CONFIG
@@ -221,19 +209,7 @@ app.get("/pedido/:paymentId", (req, res) => {
     return res.status(404).json({ error: "Pedido não encontrado" });
   }
 
-  return res.json({
-    payment_id: pedido.payment_id,
-    status: pedido.status,
-    valor: pedido.valor,
-    service_id: pedido.service_id,
-    service: pedido.service,
-    network: pedido.network,
-    quantidade: pedido.quantidade,
-    package_amount: pedido.package_amount,
-    smm_order_id: pedido.smm_order_id || null,
-    created_at: pedido.created_at,
-    sent_at: pedido.sent_at || null
-  });
+  return res.json(pedido);
 });
 
 const PORT = process.env.PORT || 3000;
