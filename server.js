@@ -5,7 +5,19 @@ const { MercadoPagoConfig, Payment } = require("mercadopago");
 
 const app = express();
 
-app.use(cors({ origin: "*" }));
+const corsOptions = {
+  origin: [
+    "https://viralboostbr.com",
+    "https://www.viralboostbr.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:5500"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // 🔥 ESSENCIAL PARA O OPTIONS
 app.use(express.json());
 
 // CONFIG
