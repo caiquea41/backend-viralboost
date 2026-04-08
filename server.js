@@ -169,16 +169,17 @@ app.post("/webhook", async (req, res) => {
 
     try {
       const smmResponse = await axios.post(API_URL, {
-        key: API_KEY,
-        action: "add",
-        service: Number(pedido.service_id),
-        link: pedido.link,
-        quantity: Number(pedido.quantidade)
-      });
+  key: API_KEY,
+  action: "add",
+  service: Number(pedido.service_id),
+  link: pedido.link,
+  quantity: Number(pedido.quantidade)
+});
 
-      pedido.status = "sent";
-      pedido.smm_response = smmResponse.data;
-      pedido.sent_at = new Date().toISOString();
+pedido.status = "sent";
+pedido.smm_response = smmResponse.data;
+pedido.smm_order_id = smmResponse.data?.order || null;
+pedido.sent_at = new Date().toISOString();
 
       console.log("Pedido enviado ao SMMWiz:", smmResponse.data);
     } catch (smmError) {
@@ -208,7 +209,19 @@ app.get("/pedido/:paymentId", (req, res) => {
     return res.status(404).json({ error: "Pedido não encontrado" });
   }
 
-  return res.json(pedido);
+  return res.json({
+    payment_id: pedido.payment_id,
+    status: pedido.status,
+    valor: pedido.valor,
+    service_id: pedido.service_id,
+    service: pedido.service,
+    network: pedido.network,
+    quantidade: pedido.quantidade,
+    package_amount: pedido.package_amount,
+    smm_order_id: pedido.smm_order_id || null,
+    created_at: pedido.created_at,
+    sent_at: pedido.sent_at || null
+  });
 });
 
 const PORT = process.env.PORT || 3000;
