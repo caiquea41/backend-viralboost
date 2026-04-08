@@ -11,7 +11,7 @@ app.use(express.json());
 // CONFIG
 const API_URL = "https://smmwiz.com/api/v2";
 const API_KEY = process.env.SMMWIZ_API_KEY || "4829473ac02c1ed8c3f666d5893fecba";
-const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || "TEST-7916377909351682-040714-df01234fd2626c34c15da7481cbc1981-1263880545";
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || "APP_USR-7916377909351682-040714-371cc903e48b3137c98cca4c283f8f10-1263880545";
 
 const client = new MercadoPagoConfig({
   accessToken: MP_ACCESS_TOKEN
