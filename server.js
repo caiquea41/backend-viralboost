@@ -81,15 +81,15 @@ app.post("/pix", async (req, res) => {
       qr_code_base64: qrCodeBase64
     });
   } catch (error) {
-    console.log("ERRO AO GERAR PIX:");
-    console.log(error);
+  console.log("ERRO PIX COMPLETO:");
+  console.log(JSON.stringify(error, null, 2));
 
-    return res.status(500).json({
-      error: "Erro ao gerar PIX",
-      detalhe: error?.message || null,
-      causa: error?.cause || null
-    });
-  }
+  return res.status(500).json({
+    error: "Erro ao gerar PIX",
+    detalhe: error?.message || null,
+    causa: error?.cause || null
+  });
+}
 });
 
 // criar pedido manualmente no SMMWiz
