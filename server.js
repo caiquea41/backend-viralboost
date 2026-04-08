@@ -5,52 +5,40 @@ const { MercadoPagoConfig, Payment } = require("mercadopago");
 
 const app = express();
 
-app.use(cors());
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// 🔗 CONFIGURAÇÃO SMMWIZ
+// CONFIG
 const API_URL = "https://smmwiz.com/api/v2";
-const API_KEY = "4829473ac02c1ed8c3f666d5893fecba";
-const SERVICE_ID = 20018;
+const API_KEY = process.env.SMMWIZ_API_KEY || "4829473ac02c1ed8c3f666d5893fecba";
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || "TEST-7916377909351682-040714-df01234fd2626c34c15da7481cbc1981-1263880545";
 
-// 💰 CONFIG MERCADO PAGO
 const client = new MercadoPagoConfig({
-  accessToken: "TEST-7916377909351682-040714-df01234fd2626c34c15da7481cbc1981-1263880545"
+  accessToken: MP_ACCESS_TOKEN
 });
 
-// ROTA TESTE
+// armazenamento simples temporário dos pedidos
+// depois, se quiser, a gente troca por banco de dados
+const pedidos = {};
+
+// rota teste
 app.get("/", (req, res) => {
   res.send("Backend online 🚀");
 });
 
-// 🚀 ROTA DE PEDIDO REAL
-app.post("/order", async (req, res) => {
-  const { link, quantidade } = req.body;
-
-  try {
-    const response = await axios.post(API_URL, {
-      key: API_KEY,
-      action: "add",
-      service: SERVICE_ID,
-      link: link,
-      quantity: quantidade
-    });
-
-    console.log("Resposta do painel:", response.data);
-
-    res.json(response.data);
-  } catch (error) {
-    console.log("Erro:", error.response?.data || error.message);
-
-    res.status(500).json({
-      error: "Erro ao enviar pedido"
-    });
-  }
-});
-
-// 💳 ROTA PIX
+// gerar PIX
 app.post("/pix", async (req, res) => {
-  const { valor } = req.body;
+  const {
+    valor,
+    link,
+    quantidade,
+    service_id,
+    service,
+    network,
+    package_amount,
+    name,
+    email
+  } = req.body;
 
   try {
     const payment = new Payment(client);
@@ -58,60 +46,149 @@ app.post("/pix", async (req, res) => {
     const result = await payment.create({
       body: {
         transaction_amount: Number(valor),
-        description: "Compra de seguidores",
+        description: `Compra ViralBoost - ${network || ""} ${service || ""}`.trim(),
         payment_method_id: "pix",
         payer: {
-          email: "cliente@email.com"
+          email: email || "comprador@viralboostbr.com",
+          first_name: name || "Cliente"
         }
       }
     });
 
+    const paymentId = result.id;
+    const qrCode = result.point_of_interaction?.transaction_data?.qr_code;
+    const qrCodeBase64 = result.point_of_interaction?.transaction_data?.qr_code_base64;
+
+    // salva os dados do pedido pelo paymentId
+    pedidos[paymentId] = {
+      payment_id: paymentId,
+      valor: Number(valor),
+      link,
+      quantidade: Number(quantidade),
+      service_id: Number(service_id),
+      service,
+      network,
+      package_amount,
+      name,
+      email,
+      status: "pending",
+      created_at: new Date().toISOString()
+    };
+
     return res.json({
-      qr_code: result.point_of_interaction.transaction_data.qr_code,
-      qr_code_base64: result.point_of_interaction.transaction_data.qr_code_base64
+      payment_id: paymentId,
+      qr_code: qrCode,
+      qr_code_base64: qrCodeBase64
     });
   } catch (error) {
-    console.log("Erro no PIX:", error);
+    console.log("ERRO AO GERAR PIX:");
+    console.log(error);
+
     return res.status(500).json({
-      error: "Erro ao gerar PIX"
+      error: "Erro ao gerar PIX",
+      detalhe: error?.message || null,
+      causa: error?.cause || null
     });
   }
 });
-app.get("/teste", (req, res) => {
-  res.send("FUNCIONANDO TESTE");
+
+// criar pedido manualmente no SMMWiz
+app.post("/order", async (req, res) => {
+  const { link, quantidade, service_id } = req.body;
+
+  try {
+    const response = await axios.post(API_URL, {
+      key: API_KEY,
+      action: "add",
+      service: Number(service_id),
+      link: link,
+      quantity: Number(quantidade)
+    });
+
+    return res.json(response.data);
+  } catch (error) {
+    console.log("ERRO SMMWIZ:");
+    console.log(error.response?.data || error.message);
+
+    return res.status(500).json({
+      error: "Erro ao enviar pedido ao SMMWiz",
+      detalhe: error.response?.data || error.message
+    });
+  }
 });
+
+// webhook do Mercado Pago
 app.post("/webhook", async (req, res) => {
   try {
-    console.log("Webhook recebido:", req.body);
+    console.log("Webhook recebido:", JSON.stringify(req.body, null, 2));
 
-    const paymentId = req.body.data.id;
+    const eventType = req.body.type || req.body.action;
+    const paymentId = req.body?.data?.id;
 
-    const payment = new Payment(client);
-
-    const paymentInfo = await payment.get({ id: paymentId });
-
-    // verifica se foi pago
-    if (paymentInfo.status === "approved") {
-      console.log("Pagamento aprovado!");
-
-      // ⚠️ AQUI você envia pro SMM
-      await axios.post(API_URL, {
-        key: API_KEY,
-        action: "add",
-        service: SERVICE_ID,
-        link: "https://instagram.com/teste", // depois vamos pegar isso dinâmico
-        quantity: 100
-      });
+    if (!paymentId) {
+      return res.sendStatus(200);
     }
 
-    res.sendStatus(200);
+    const payment = new Payment(client);
+    const paymentInfo = await payment.get({ id: paymentId });
 
+    if (paymentInfo.status === "approved") {
+      const pedido = pedidos[paymentId];
+
+      if (!pedido) {
+        console.log("Pedido não encontrado para payment_id:", paymentId);
+        return res.sendStatus(200);
+      }
+
+      if (pedido.status === "approved" || pedido.status === "sent") {
+        console.log("Pedido já processado:", paymentId);
+        return res.sendStatus(200);
+      }
+
+      pedido.status = "approved";
+
+      try {
+        const smmResponse = await axios.post(API_URL, {
+          key: API_KEY,
+          action: "add",
+          service: Number(pedido.service_id),
+          link: pedido.link,
+          quantity: Number(pedido.quantidade)
+        });
+
+        pedido.status = "sent";
+        pedido.smm_response = smmResponse.data;
+        pedido.sent_at = new Date().toISOString();
+
+        console.log("Pedido enviado ao SMMWiz:", smmResponse.data);
+      } catch (smmError) {
+        pedido.status = "error";
+        pedido.smm_error = smmError.response?.data || smmError.message;
+
+        console.log("Erro ao enviar ao SMMWiz:");
+        console.log(smmError.response?.data || smmError.message);
+      }
+    }
+
+    return res.sendStatus(200);
   } catch (error) {
-    console.log("Erro webhook:", error);
-    res.sendStatus(500);
+    console.log("ERRO NO WEBHOOK:");
+    console.log(error);
+    return res.sendStatus(500);
   }
 });
-// 🚀 PORTA (SEMPRE POR ÚLTIMO)
+
+// consultar pedido salvo
+app.get("/pedido/:paymentId", (req, res) => {
+  const pedido = pedidos[req.params.paymentId];
+
+  if (!pedido) {
+    return res.status(404).json({ error: "Pedido não encontrado" });
+  }
+
+  return res.json(pedido);
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
