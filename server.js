@@ -5,6 +5,9 @@ const { MercadoPagoConfig, Payment } = require("mercadopago");
 
 const app = express();
 
+/**
+ * CORS
+ */
 const corsOptions = {
   origin: [
     "https://viralboostbr.com",
@@ -21,26 +24,36 @@ app.options("/pix", cors(corsOptions));
 app.options("/order", cors(corsOptions));
 app.options("/webhook", cors(corsOptions));
 app.options("/pedido/:paymentId", cors(corsOptions));
+
 app.use(express.json());
-// CONFIG
+
+/**
+ * CONFIG
+ */
 const API_URL = "https://smmwiz.com/api/v2";
-const API_KEY = process.env.SMMWIZ_API_KEY || "4829473ac02c1ed8c3f666d5893fecba";
-const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || "APP_USR-7916377909351682-040714-371cc903e48b3137c98cca4c283f8f10-1263880545";
+const API_KEY = process.env.SMMWIZ_API_KEY || "SUA_API_KEY_SMMWIZ";
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || "SEU_ACCESS_TOKEN_MP";
 
 const client = new MercadoPagoConfig({
   accessToken: MP_ACCESS_TOKEN
 });
 
-// armazenamento simples temporário dos pedidos
-// depois, se quiser, a gente troca por banco de dados
+/**
+ * Armazenamento temporário em memória
+ * Depois, se quiser, a gente troca por banco de dados
+ */
 const pedidos = {};
 
-// rota teste
+/**
+ * Rota teste
+ */
 app.get("/", (req, res) => {
   res.send("Backend online 🚀");
 });
 
-// gerar PIX
+/**
+ * GERAR PIX
+ */
 app.post("/pix", async (req, res) => {
   const {
     valor,
@@ -51,15 +64,26 @@ app.post("/pix", async (req, res) => {
     network,
     package_amount,
     name,
-    email
+    email,
+    upsell_active,
+    upsell_extra_quantity,
+    upsell_price
   } = req.body;
 
   try {
+    const numericValor = Number(valor);
+
+    if (!numericValor || numericValor <= 0) {
+      return res.status(400).json({
+        error: "Valor inválido para gerar PIX."
+      });
+    }
+
     const payment = new Payment(client);
 
     const result = await payment.create({
       body: {
-        transaction_amount: Number(valor),
+        transaction_amount: numericValor,
         description: `Compra ViralBoost - ${network || ""} ${service || ""}`.trim(),
         payment_method_id: "pix",
         payer: {
@@ -70,43 +94,52 @@ app.post("/pix", async (req, res) => {
     });
 
     const paymentId = result.id;
-    const qrCode = result.point_of_interaction?.transaction_data?.qr_code;
-    const qrCodeBase64 = result.point_of_interaction?.transaction_data?.qr_code_base64;
+    const qrCode = result.point_of_interaction?.transaction_data?.qr_code || null;
+    const qrCodeBase64 = result.point_of_interaction?.transaction_data?.qr_code_base64 || null;
 
-    // salva os dados do pedido pelo paymentId
     pedidos[paymentId] = {
       payment_id: paymentId,
-      valor: Number(valor),
-      link,
-      quantidade: Number(quantidade),
-      service_id: Number(service_id),
-      service,
-      network,
-      package_amount,
-      name,
-      email,
+      valor: numericValor,
+      link: link || "",
+      quantidade: Number(quantidade) || 0,
+      service_id: Number(service_id) || 0,
+      service: service || "",
+      network: network || "",
+      package_amount: package_amount || "",
+      name: name || "",
+      email: email || "",
+      upsell_active: Boolean(upsell_active),
+      upsell_extra_quantity: Number(upsell_extra_quantity) || 0,
+      upsell_price: Number(upsell_price) || 0,
       status: "pending",
-      created_at: new Date().toISOString()
+      smm_order_id: null,
+      smm_response: null,
+      smm_error: null,
+      created_at: new Date().toISOString(),
+      sent_at: null
     };
 
     return res.json({
       payment_id: paymentId,
+      status: result.status || "pending",
       qr_code: qrCode,
       qr_code_base64: qrCodeBase64
     });
   } catch (error) {
-  console.log("ERRO PIX COMPLETO:");
-  console.log(JSON.stringify(error, null, 2));
+    console.log("ERRO PIX COMPLETO:");
+    console.log(JSON.stringify(error, null, 2));
 
-  return res.status(500).json({
-    error: "Erro ao gerar PIX",
-    detalhe: error?.message || null,
-    causa: error?.cause || null
-  });
-}
+    return res.status(500).json({
+      error: "Erro ao gerar PIX",
+      detalhe: error?.message || null,
+      causa: error?.cause || null
+    });
+  }
 });
 
-// criar pedido manualmente no SMMWiz
+/**
+ * CRIAR PEDIDO MANUAL NO SMMWIZ
+ */
 app.post("/order", async (req, res) => {
   const { link, quantidade, service_id } = req.body;
 
@@ -131,7 +164,9 @@ app.post("/order", async (req, res) => {
   }
 });
 
-// webhook do Mercado Pago
+/**
+ * WEBHOOK DO MERCADO PAGO
+ */
 app.post("/webhook", async (req, res) => {
   try {
     console.log("Webhook recebido:", JSON.stringify(req.body, null, 2));
@@ -141,19 +176,19 @@ app.post("/webhook", async (req, res) => {
     const eventType = req.body?.type;
     const action = req.body?.action;
 
-    // 1) Responder OK para payloads de teste/simulação
+    // Webhook de teste/simulação
     if (liveMode === false) {
       console.log("Webhook de teste recebido. Retornando 200 sem processar.");
       return res.sendStatus(200);
     }
 
-    // 2) Se não tiver paymentId, não quebra
+    // Sem paymentId
     if (!paymentId) {
       console.log("Webhook sem paymentId. Retornando 200.");
       return res.sendStatus(200);
     }
 
-    // 3) Processa apenas eventos de pagamento
+    // Processa apenas eventos de pagamento
     if (eventType !== "payment" && action !== "payment.updated") {
       console.log("Evento ignorado:", eventType || action);
       return res.sendStatus(200);
@@ -182,18 +217,20 @@ app.post("/webhook", async (req, res) => {
     pedido.status = "approved";
 
     try {
-      const smmResponse = await axios.post(API_URL, {
-  key: API_KEY,
-  action: "add",
-  service: Number(pedido.service_id),
-  link: pedido.link,
-  quantity: Number(pedido.quantidade)
-});
+      const quantidadeFinal = Number(pedido.quantidade) + Number(pedido.upsell_extra_quantity || 0);
 
-pedido.status = "sent";
-pedido.smm_response = smmResponse.data;
-pedido.smm_order_id = smmResponse.data?.order || null;
-pedido.sent_at = new Date().toISOString();
+      const smmResponse = await axios.post(API_URL, {
+        key: API_KEY,
+        action: "add",
+        service: Number(pedido.service_id),
+        link: pedido.link,
+        quantity: quantidadeFinal
+      });
+
+      pedido.status = "sent";
+      pedido.smm_response = smmResponse.data;
+      pedido.smm_order_id = smmResponse.data?.order || null;
+      pedido.sent_at = new Date().toISOString();
 
       console.log("Pedido enviado ao SMMWiz:", smmResponse.data);
     } catch (smmError) {
@@ -209,13 +246,14 @@ pedido.sent_at = new Date().toISOString();
     console.log("ERRO NO WEBHOOK:");
     console.log(error.response?.data || error.message || error);
 
-    // Mesmo em erro, você pode devolver 200 durante testes
-    // para validar a URL no painel e evitar falha no "Test URL"
+    // Mantém 200 para o Mercado Pago não ficar rebatendo teste
     return res.sendStatus(200);
   }
 });
 
-// consultar pedido salvo
+/**
+ * CONSULTAR PEDIDO SALVO
+ */
 app.get("/pedido/:paymentId", (req, res) => {
   const pedido = pedidos[req.params.paymentId];
 
@@ -223,11 +261,34 @@ app.get("/pedido/:paymentId", (req, res) => {
     return res.status(404).json({ error: "Pedido não encontrado" });
   }
 
-  return res.json(pedido);
+  return res.json({
+    payment_id: pedido.payment_id,
+    status: pedido.status,
+    valor: pedido.valor,
+    link: pedido.link,
+    quantidade: pedido.quantidade,
+    service_id: pedido.service_id,
+    service: pedido.service,
+    network: pedido.network,
+    package_amount: pedido.package_amount,
+    name: pedido.name,
+    email: pedido.email,
+    upsell_active: pedido.upsell_active,
+    upsell_extra_quantity: pedido.upsell_extra_quantity,
+    upsell_price: pedido.upsell_price,
+    smm_order_id: pedido.smm_order_id,
+    smm_response: pedido.smm_response,
+    smm_error: pedido.smm_error,
+    created_at: pedido.created_at,
+    sent_at: pedido.sent_at
+  });
 });
 
+/**
+ * START SERVER
+ */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("Servidor rodando 🚀");
+  console.log(`Servidor rodando na porta ${PORT} 🚀`);
 });
