@@ -5,9 +5,23 @@ const { MercadoPagoConfig, Payment } = require("mercadopago");
 
 const app = express();
 
-app.use(cors({ origin: "*" }));
-app.use(express.json());
+const corsOptions = {
+  origin: [
+    "https://viralboostbr.com",
+    "https://www.viralboostbr.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:5500"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+};
 
+app.use(cors(corsOptions));
+app.options("/pix", cors(corsOptions));
+app.options("/order", cors(corsOptions));
+app.options("/webhook", cors(corsOptions));
+app.options("/pedido/:paymentId", cors(corsOptions));
+app.use(express.json());
 // CONFIG
 const API_URL = "https://smmwiz.com/api/v2";
 const API_KEY = process.env.SMMWIZ_API_KEY || "4829473ac02c1ed8c3f666d5893fecba";
