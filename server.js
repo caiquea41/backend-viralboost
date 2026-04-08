@@ -18,7 +18,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions)); // 🔥 ESSENCIAL PARA O OPTIONS
-app.use(express.json())
+app.use(express.json());
 
 // CONFIG
 const API_URL = "https://smmwiz.com/api/v2";
